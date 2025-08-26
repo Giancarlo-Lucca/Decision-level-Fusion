@@ -3,13 +3,13 @@ Title: On the Potential of Fuzzy Integral-based Decision-level Fusion when the F
 Not avaliable online yet  
 This algorithm is only a case study of a three-source fusion task  
   
-**Describtion**
+**Describtion**  
 You can simple run 'main.py' to obtain the reults  
 The outputs from two datasets are avaliable online:  
 Combined_dataset.txt: The high accuracies dataset  
 iLab_dataset.txt: The low aacuracies dataset  
   
-**How to obtain the outputs**
+**How to obtain the outputs**  
 You can directly use the avaliable outputs
   
 **OR**  
@@ -20,7 +20,7 @@ You can then obtain the pre-trained ResNets and and follow the steps to obtain t
 For the Combined dataset, we use '8.pth', '16.pth' and '23.pth' in '1\_fuzzy\_integral\_fold1/data/all\_datasets/model' correspond to 'color', 'shape' and 'texture' respectively  
 For the iLab dataset, we use '15.pth', '21.pth' and '16.pth' in `iLab/model' respectively  
   
-**References for code**
+**References for code**  
 Datasets:  
 Y. Ge, Y. Xiao, Z. Xu, X. Wang, and L. Itti, “Contributions of shape, texture, and color in visual recognition,” 2022 Computer Vision – ECCV, pp. 369–386, 2022.  
   
