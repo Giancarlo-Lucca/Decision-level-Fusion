@@ -1,5 +1,7 @@
 # 2025-FUZZ-IEEE-Code
-Title: On the Potential of Fuzzy Integral-based Decision-level Fusion when the Fuzzy Measure is Informed by Densities Alone  
+**Title:**  
+On the Potential of Fuzzy Integral-based Decision-level Fusion when the Fuzzy Measure is Informed by Densities Alone  
+  
 Not avaliable online yet  
 This algorithm is only a case study of a three-source fusion task  
   
