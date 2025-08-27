@@ -6,7 +6,7 @@ Not avaliable online yet
 This algorithm is only a case study of a three-source fusion task  
   
 **Describtion**  
-You can simple run 'main.py' to obtain the reults  
+You can simply run 'main.py' to obtain the reults  
 The outputs from two datasets are avaliable online:  
 Combined_dataset.txt: The high accuracies dataset  
 iLab_dataset.txt: The low aacuracies dataset  
