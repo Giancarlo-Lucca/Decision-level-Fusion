@@ -18,7 +18,7 @@ You can directly use the avaliable outputs
   
 You can first find the origin datasets at 'https://github.com/gyhandy/Humanoid-Vision-Engine'  
   
-You can then obtain the pre-trained ResNets and and follow the steps to obtain the outputs at 'https://github.com/yifanwang97/Explainable-fuzzy-integral'  
+You can then obtain the pre-trained ResNets and follow the steps to obtain the outputs at 'https://github.com/yifanwang97/Explainable-fuzzy-integral'  
 For the Combined dataset, we use '8.pth', '16.pth' and '23.pth' in '1\_fuzzy\_integral\_fold1/data/all\_datasets/model' correspond to 'color', 'shape' and 'texture' respectively  
 For the iLab dataset, we use '15.pth', '21.pth' and '16.pth' in `iLab/model' respectively  
   
