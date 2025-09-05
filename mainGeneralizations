@@ -2,6 +2,7 @@ import numpy as np
 import random
 from sklearn.model_selection import KFold
 import ast
+import sympy as sp
 
 ##########  This algorithm is only a case study of a three-source fusion task  #############
 
@@ -27,41 +28,46 @@ import ast
 # 9: dXC-Integral (The default in the Java code's 'else' block)
 
 # ====================================================================
-# FUZZY MEASURE IMPLEMENTATIONS (from Java fuzzyMeasure method)
+# FUZZY MEASURE IMPLEMENTATIONS
 # ====================================================================
-def fuzzy_measure(tipoFM, rulesIndex, indices, indAg, jotaDirac, w, exp, asociations):
-    numFiredRules = len(asociations)
+def fuzzy_measure(tipoFM, indexes_Classes, sorted_valuesToAgg, exp, w):
+    numAgg_Values = len(indexes_Classes)
+
     measure = 0.0
     
     if tipoFM == 1:
         # Cardinality
-        measure = len(rulesIndex) / numFiredRules
+        measure = numAgg_Values / 3.0 # The total number of sources is 3
     elif tipoFM == 2:
-        # Delta of Dirac
-        if jotaDirac in rulesIndex:
+        # Delta of Dirac (based on the middle element's position)
+        if len(indexes_Classes) == 2:
+            middle_index = 1
+        else:
+            middle_index = 0
+        
+        jota_dirac_value = sorted_valuesToAgg[middle_index]
+        if jota_dirac_value in sorted_valuesToAgg:
             measure = 1.0
         else:
             measure = 0.0
     elif tipoFM == 3:
         # Weighted Mean
-        # Note: This implementation needs careful mapping of weights
-        for j in rulesIndex:
-            measure += w[j]
+        for idx in indexes_Classes:
+            measure += w[idx]
     elif tipoFM == 4:
         # OWA
-        # OWA weights are applied to the ordered values, not the sources
-        # We need to map the original weights to the ordered positions
-        for j in range(numFiredRules):
-             if asociations[j] == asociations[indAg]: # Find the position in the ordered list
-                 measure += w[j]
+        # OWA weights are applied to the ordered values based on their position
+        for i, val in enumerate(sorted_valuesToAgg):
+            if i in indexes_Classes:
+                measure += w[i]
     elif tipoFM == 5:
         # CardGA
-        measure = (len(rulesIndex) / numFiredRules) ** exp
+        measure = (numAgg_Values / 3.0) ** exp
     
     return measure
 
 # ====================================================================
-# INTEGRAL GENERALIZATIONS (from Java agChoquet method)
+# INTEGRAL GENERALIZATIONS (Top generalizations of the Choquet integral)
 # ====================================================================
 def integral_product_tnorm(x, y):
     return x * y
@@ -91,7 +97,7 @@ def integral_cf1f2(h_i, h_i_1, y):
     return np.sqrt(h_i * y) - (h_i_1 * (y ** 2))
 
 def integral_dcf_alterado(h_i, h_i_1, y):
-    if h_i_1 > h_i: # To prevent sqrt of negative
+    if h_i_1 > h_i:
         return 0.0
     x = np.sqrt(np.sqrt(h_i) - np.sqrt(h_i_1))
     return x * y
@@ -104,7 +110,7 @@ def integral_dcc(h_i, h_i_1, y):
     return np.sqrt(np.sqrt(term1) - np.sqrt(term2))
 
 def integral_dxc(h_i, h_i_1, y):
-    if (h_i_1 * y) > (h_i * y): # To prevent sqrt of negative
+    if (h_i_1 * y) > (h_i * y):
         return 0.0
     return np.sqrt(np.sqrt(h_i * y) - np.sqrt(h_i_1 * y))
 
@@ -113,52 +119,37 @@ def integral_dxc(h_i, h_i_1, y):
 # ====================================================================
 def generalized_choquet(opFM, tipoFM, output_shape, output_texture, output_color, exp=0.5):
     
-    # We need to aggregate for EACH class. The output of each classifier
-    # is a list of values, one for each class.
     num_classes = len(output_shape)
     choquet_output = np.zeros(num_classes)
-
-    # Weighted Mean/OWA weights are per-source, not per-class
+    
+    # We now generate the weights based on the number of sources (3)
+    # The weights are randomized and normalized once per call.
     w = []
     if tipoFM in [3, 4]:
         random.seed(123456789)
         w = [random.random() for _ in range(3)]
         sum_w = sum(w)
         w = [wi / sum_w for wi in w]
-
-    # LOOP over each class to perform aggregation
-    for class_idx in range(num_classes):
-        # `asociations` will now be a list of 3 numbers for the current class
-        asociations = [output_shape[class_idx], output_texture[class_idx], output_color[class_idx]]
         
-        # In the Java code, `firRul` is an array of rule indices. 
-        # We can assume it's just [0, 1, 2] for shape, texture, color.
-        firRul = [0, 1, 2]
+    for class_idx in range(num_classes):
+        valuesToAgg = [output_shape[class_idx], output_texture[class_idx], output_color[class_idx]]
         
         # Sort values and get indices
-        sorted_indices = np.argsort(asociations)[::-1]
-        sorted_asociations = np.array(asociations)[sorted_indices]
+        sorted_indices = np.argsort(valuesToAgg)[::-1]
+        sorted_valuesToAgg = np.array(valuesToAgg)[sorted_indices]
         
-        # Sort firRul to match the order of sorted_asociations
-        sorted_firRul = np.array(firRul)[sorted_indices]
+        agr = sorted_valuesToAgg[0]
+        indexes_Classes = list(range(1, 3))
 
-        # Delta of Dirac rule
-        jotaDirac = sorted_firRul[int(np.floor(len(asociations) / 2))]
-
-        agr = sorted_asociations[0]
-        rules_in_set = list(sorted_firRul[1:])
-
-        for i in range(1, len(sorted_asociations)):
-            x = sorted_asociations[i] - sorted_asociations[i - 1]
-            
-            # The fuzzy measure needs to be calculated on the set of rules
-            y = fuzzy_measure(tipoFM, rules_in_set, sorted_indices, i, jotaDirac, w, exp, asociations)
+        for i in range(1, len(sorted_valuesToAgg)):
+            x = sorted_valuesToAgg[i] - sorted_valuesToAgg[i - 1]
+            y = fuzzy_measure(tipoFM, indexes_Classes, sorted_valuesToAgg, exp, w)
             
             sumando = 0.0
             if opFM == 1:
                 sumando = integral_product_tnorm(x, y)
             elif opFM == 2:
-                sumando = integral_cc_min(sorted_asociations[i], sorted_asociations[i-1], y)
+                sumando = integral_cc_min(sorted_valuesToAgg[i], sorted_valuesToAgg[i-1], y)
             elif opFM == 3:
                 sumando = integral_ct(x, y)
             elif opFM == 4:
@@ -166,27 +157,29 @@ def generalized_choquet(opFM, tipoFM, output_shape, output_texture, output_color
             elif opFM == 5:
                 sumando = integral_cf_nonavg(x, y)
             elif opFM == 6:
-                sumando = integral_cf1f2(sorted_asociations[i], sorted_asociations[i-1], y)
+                sumando = integral_cf1f2(sorted_valuesToAgg[i], sorted_valuesToAgg[i-1], y)
             elif opFM == 7:
-                sumando = integral_dcf_alterado(sorted_asociations[i], sorted_asociations[i-1], y)
+                sumando = integral_dcf_alterado(sorted_valuesToAgg[i], sorted_valuesToAgg[i-1], y)
             elif opFM == 8:
-                sumando = integral_dcc(sorted_asociations[i], sorted_asociations[i-1], y)
+                sumando = integral_dcc(sorted_valuesToAgg[i], sorted_valuesToAgg[i-1], y)
             elif opFM == 9:
-                sumando = integral_dxc(sorted_asociations[i], sorted_asociations[i-1], y)
+                sumando = integral_dxc(sorted_valuesToAgg[i], sorted_valuesToAgg[i-1], y)
 
             sumando = min(1, sumando)
             agr += sumando
             
-            rules_in_set.pop(0)
+            indexes_Classes.pop(0)
 
         choquet_output[class_idx] = agr
 
     return choquet_output
 
+
 # ====================================================================
 # ORIGINAL CODE
 # The functions below are kept for context but are not used when
-# using the new generalized_choquet function.
+# using the new generalized_choquet function. 
+# We can, for future works, consider to follow the path of generalizations of the Sugeno
 # ====================================================================
 # Generate Sugeno-lambda FM
 def get_Sugeno(g1,g2,g3):
@@ -234,7 +227,7 @@ def get_ChI(output_shape, output_texture, output_color, g_measure) :
         elif np.all(h_dec == [2,0,1]) :
             ChI_output[i] = g_measure[2]*h[h_dec[0]] + (g_measure[4] - g_measure[2])*h[h_dec[1]] + (g_measure[6] - g_measure[4])*h[h_dec[2]]
         elif np.all(h_dec == [2,1,0]) :
-            ChI_output[i] = g_measure[2]*h[h_dec[0]] + (g_measure[5] - g_measure[2])*h[h_dec[1]] + (g_measure[6] - g_measure[5])*h[h_dec[2]]
+            ChI_output[i] = g_measure[2]*h[h_dec[0]] + (g_measure[5] - g_measure[2])*h[h_dec[1]] + (g_measure[6] - g_measure[5])*h[h_dec[2]] 
     return ChI_output
 
 # Sugeno FI (Original)
@@ -351,7 +344,6 @@ def K_Fold(data_list, num_fold, opFM, tipoFM):
             WA_output = get_WA(output_shape, output_texture, output_color, WA_weight)
             Average_output = get_WA(output_shape, output_texture, output_color, Average_weight)
             
-            # The function now works correctly as it's passed a single data point
             general_choquet_output = generalized_choquet(opFM, tipoFM, output_shape, output_texture, output_color)
             
             if np.argsort(WA_output)[::-1][0] == output_label:
@@ -390,11 +382,11 @@ if __name__ == "__main__":
     # CHOOSE YOUR COMBINATION HERE
     # Fuzzy Measure Type (tipoFM)
     # 1: Cardinality, 2: Delta of Dirac, 3: Weighted Mean, 4: OWA, 5: CardGA
-    selected_tipoFM = 1
+    selected_tipoFM = 5
     
     # Integral Generalization Type (opFM)
     # 1: Product t-norm, 2: CC-min, 3: CT-integral, 4: CF-AVG, 5: CF-nonAVG, 6: CF1F2, 7: dCF, 8: dCC, 9: dXC
-    selected_opFM = 2
+    selected_opFM = 8
     
     # Load data
     data_list = data_loader('iLab_dataset.txt')
