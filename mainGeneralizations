@@ -1,0 +1,404 @@
+import numpy as np
+import random
+from sklearn.model_selection import KFold
+import ast
+
+##########  This algorithm is only a case study of a three-source fusion task  #############
+
+# The variables below control the Choquet integral type
+# Choose the fuzzy measure (tipoFM) and integral generalization (opFM)
+#
+# Available Fuzzy Measures (tipoFM):
+# 1: Cardinality
+# 2: Delta of Dirac
+# 3: Weighted Mean
+# 4: OWA
+# 5: CardGA
+#
+# Available Integral Generalizations (opFM):
+# 1: Product t-norm (Standard Choquet)
+# 2: CC-min
+# 3: CT-integral
+# 4: CF-integral-AVG (FNA)
+# 5: CF-integral-nonAVG (FNA2)
+# 6: CF1F2-Integral (GM - FBPC)
+# 7: dCF - alterado
+# 8: dCC
+# 9: dXC-Integral (The default in the Java code's 'else' block)
+
+# ====================================================================
+# FUZZY MEASURE IMPLEMENTATIONS (from Java fuzzyMeasure method)
+# ====================================================================
+def fuzzy_measure(tipoFM, rulesIndex, indices, indAg, jotaDirac, w, exp, asociations):
+    numFiredRules = len(asociations)
+    measure = 0.0
+    
+    if tipoFM == 1:
+        # Cardinality
+        measure = len(rulesIndex) / numFiredRules
+    elif tipoFM == 2:
+        # Delta of Dirac
+        if jotaDirac in rulesIndex:
+            measure = 1.0
+        else:
+            measure = 0.0
+    elif tipoFM == 3:
+        # Weighted Mean
+        # Note: This implementation needs careful mapping of weights
+        for j in rulesIndex:
+            measure += w[j]
+    elif tipoFM == 4:
+        # OWA
+        # OWA weights are applied to the ordered values, not the sources
+        # We need to map the original weights to the ordered positions
+        for j in range(numFiredRules):
+             if asociations[j] == asociations[indAg]: # Find the position in the ordered list
+                 measure += w[j]
+    elif tipoFM == 5:
+        # CardGA
+        measure = (len(rulesIndex) / numFiredRules) ** exp
+    
+    return measure
+
+# ====================================================================
+# INTEGRAL GENERALIZATIONS (from Java agChoquet method)
+# ====================================================================
+def integral_product_tnorm(x, y):
+    return x * y
+
+def integral_cc_min(h_i, h_i_1, y):
+    return min(h_i, y) - min(h_i_1, y)
+
+def integral_ct(x, y):
+    if (x == 0.0) and (y == 0.0):
+        return 0.0
+    return (x * y) / (x + y - (x * y))
+
+def integral_cf_avg(x, y):
+    if x < y:
+        return x
+    return min(x / 2, y)
+
+def integral_cf_nonavg(x, y):
+    if x == 0:
+        return 0
+    elif (x > 0) and (x <= y):
+        return (x + y) / 2
+    else:
+        return min(x / 2, y)
+
+def integral_cf1f2(h_i, h_i_1, y):
+    return np.sqrt(h_i * y) - (h_i_1 * (y ** 2))
+
+def integral_dcf_alterado(h_i, h_i_1, y):
+    if h_i_1 > h_i: # To prevent sqrt of negative
+        return 0.0
+    x = np.sqrt(np.sqrt(h_i) - np.sqrt(h_i_1))
+    return x * y
+
+def integral_dcc(h_i, h_i_1, y):
+    term1 = np.min([h_i, y]) * np.max([h_i ** 2, y ** 2])
+    term2 = np.min([h_i_1, y]) * np.max([h_i_1 ** 2, y ** 2])
+    if term2 > term1:
+         return 0.0
+    return np.sqrt(np.sqrt(term1) - np.sqrt(term2))
+
+def integral_dxc(h_i, h_i_1, y):
+    if (h_i_1 * y) > (h_i * y): # To prevent sqrt of negative
+        return 0.0
+    return np.sqrt(np.sqrt(h_i * y) - np.sqrt(h_i_1 * y))
+
+# ====================================================================
+# GENERALIZED CHOQUET INTEGRAL FUNCTION (NOW CORRECTLY HANDLES CLASSES)
+# ====================================================================
+def generalized_choquet(opFM, tipoFM, output_shape, output_texture, output_color, exp=0.5):
+    
+    # We need to aggregate for EACH class. The output of each classifier
+    # is a list of values, one for each class.
+    num_classes = len(output_shape)
+    choquet_output = np.zeros(num_classes)
+
+    # Weighted Mean/OWA weights are per-source, not per-class
+    w = []
+    if tipoFM in [3, 4]:
+        random.seed(123456789)
+        w = [random.random() for _ in range(3)]
+        sum_w = sum(w)
+        w = [wi / sum_w for wi in w]
+
+    # LOOP over each class to perform aggregation
+    for class_idx in range(num_classes):
+        # `asociations` will now be a list of 3 numbers for the current class
+        asociations = [output_shape[class_idx], output_texture[class_idx], output_color[class_idx]]
+        
+        # In the Java code, `firRul` is an array of rule indices. 
+        # We can assume it's just [0, 1, 2] for shape, texture, color.
+        firRul = [0, 1, 2]
+        
+        # Sort values and get indices
+        sorted_indices = np.argsort(asociations)[::-1]
+        sorted_asociations = np.array(asociations)[sorted_indices]
+        
+        # Sort firRul to match the order of sorted_asociations
+        sorted_firRul = np.array(firRul)[sorted_indices]
+
+        # Delta of Dirac rule
+        jotaDirac = sorted_firRul[int(np.floor(len(asociations) / 2))]
+
+        agr = sorted_asociations[0]
+        rules_in_set = list(sorted_firRul[1:])
+
+        for i in range(1, len(sorted_asociations)):
+            x = sorted_asociations[i] - sorted_asociations[i - 1]
+            
+            # The fuzzy measure needs to be calculated on the set of rules
+            y = fuzzy_measure(tipoFM, rules_in_set, sorted_indices, i, jotaDirac, w, exp, asociations)
+            
+            sumando = 0.0
+            if opFM == 1:
+                sumando = integral_product_tnorm(x, y)
+            elif opFM == 2:
+                sumando = integral_cc_min(sorted_asociations[i], sorted_asociations[i-1], y)
+            elif opFM == 3:
+                sumando = integral_ct(x, y)
+            elif opFM == 4:
+                sumando = integral_cf_avg(x, y)
+            elif opFM == 5:
+                sumando = integral_cf_nonavg(x, y)
+            elif opFM == 6:
+                sumando = integral_cf1f2(sorted_asociations[i], sorted_asociations[i-1], y)
+            elif opFM == 7:
+                sumando = integral_dcf_alterado(sorted_asociations[i], sorted_asociations[i-1], y)
+            elif opFM == 8:
+                sumando = integral_dcc(sorted_asociations[i], sorted_asociations[i-1], y)
+            elif opFM == 9:
+                sumando = integral_dxc(sorted_asociations[i], sorted_asociations[i-1], y)
+
+            sumando = min(1, sumando)
+            agr += sumando
+            
+            rules_in_set.pop(0)
+
+        choquet_output[class_idx] = agr
+
+    return choquet_output
+
+# ====================================================================
+# ORIGINAL CODE
+# The functions below are kept for context but are not used when
+# using the new generalized_choquet function.
+# ====================================================================
+# Generate Sugeno-lambda FM
+def get_Sugeno(g1,g2,g3):
+    lambda_val = -1
+    g_lambda = 0.0
+    try:
+        lambda_roots = sp.solve((1 + sp.Symbol('x') * g1) * (1 + sp.Symbol('x') * g2) * (1 + sp.Symbol('x') * g3) - (sp.Symbol('x') + 1))
+        g_lambda = [x for x in lambda_roots if x > -1 and x != float(0)][0]
+    except (sp.core.sympify.SympifyError, IndexError):
+        # Fallback for when sympy fails to find a root
+        g_lambda = 0.0
+    g12 = g1 + g2 + g_lambda * g1 * g2
+    g13 = g1 + g3 + g_lambda * g1 * g3
+    g23 = g2 + g3 + g_lambda * g2 * g3
+    g_group = np.array([g1,g2,g3,g12,g13,g23,1]).flatten()
+    return g_group
+
+# Generate Decomposable FM
+def get_decompose_fuzzy_measure(g1,g2,g3) :
+    g12 = min(g1+g2,1)
+    g13 = min(g1+g3,1)
+    g23 = min(g2+g3,1)
+    g123 = min(g1+g2+g3,1)
+    g_group = np.array([g1,g2,g3,g12,g13,g23,g123]).flatten()
+    return g_group
+
+# Choquet FI (Original)
+def get_ChI(output_shape, output_texture, output_color, g_measure) :
+    input_ChI = np.zeros((3, len(output_shape)))
+    input_ChI[0,:] = output_shape
+    input_ChI[1,:] = output_texture
+    input_ChI[2,:] = output_color
+    ChI_output = np.zeros((len(output_shape)))
+    for i in range(len(output_shape)) :
+        h = np.array([input_ChI[0,i], input_ChI[1,i], input_ChI[2,i]])
+        h_dec = np.argsort(h)[::-1]
+        if np.all(h_dec == [0,1,2]) :
+            ChI_output[i] = g_measure[0]*h[h_dec[0]] + (g_measure[3] - g_measure[0])*h[h_dec[1]] + (g_measure[6] - g_measure[3])*h[h_dec[2]]
+        elif np.all(h_dec == [0,2,1]) :
+            ChI_output[i] = g_measure[0]*h[h_dec[0]] + (g_measure[4] - g_measure[0])*h[h_dec[1]] + (g_measure[6] - g_measure[4])*h[h_dec[2]]
+        elif np.all(h_dec == [1,0,2]) :
+            ChI_output[i] = g_measure[1]*h[h_dec[0]] + (g_measure[3] - g_measure[1])*h[h_dec[1]] + (g_measure[6] - g_measure[3])*h[h_dec[2]]
+        elif np.all(h_dec == [1,2,0]) :
+            ChI_output[i] = g_measure[1]*h[h_dec[0]] + (g_measure[5] - g_measure[1])*h[h_dec[1]] + (g_measure[6] - g_measure[5])*h[h_dec[2]]
+        elif np.all(h_dec == [2,0,1]) :
+            ChI_output[i] = g_measure[2]*h[h_dec[0]] + (g_measure[4] - g_measure[2])*h[h_dec[1]] + (g_measure[6] - g_measure[4])*h[h_dec[2]]
+        elif np.all(h_dec == [2,1,0]) :
+            ChI_output[i] = g_measure[2]*h[h_dec[0]] + (g_measure[5] - g_measure[2])*h[h_dec[1]] + (g_measure[6] - g_measure[5])*h[h_dec[2]]
+    return ChI_output
+
+# Sugeno FI (Original)
+def get_SI(output_shape, output_texture, output_color, g_measure) :
+    input_SI = np.zeros((3, len(output_shape)))
+    input_SI[0,:] = output_shape
+    input_SI[1,:] = output_texture
+    input_SI[2,:] = output_color
+    SI_output = np.zeros((len(output_shape)))
+    for i in range(len(output_shape)) :
+        h = np.array([input_SI[0,i], input_SI[1,i], input_SI[2,i]])
+        h_dec = np.argsort(h)[::-1]
+        if np.all(h_dec == [0,1,2]) :
+            SI_output[i] = max(min(g_measure[0],h[h_dec[0]]),min(g_measure[3],h[h_dec[1]]),min(g_measure[6],h[h_dec[2]]))
+        elif np.all(h_dec == [0,2,1]) :
+            SI_output[i] = max(min(g_measure[0],h[h_dec[0]]),min(g_measure[4],h[h_dec[1]]),min(g_measure[6],h[h_dec[2]]))
+        elif np.all(h_dec == [1,0,2]) :
+            SI_output[i] = max(min(g_measure[1],h[h_dec[0]]),min(g_measure[3],h[h_dec[1]]),min(g_measure[6],h[h_dec[2]]))
+        elif np.all(h_dec == [1,2,0]) :
+            SI_output[i] = max(min(g_measure[1],h[h_dec[0]]),min(g_measure[5],h[h_dec[1]]),min(g_measure[6],h[h_dec[2]]))
+        elif np.all(h_dec == [2,0,1]) :
+            SI_output[i] = max(min(g_measure[2],h[h_dec[0]]),min(g_measure[4],h[h_dec[1]]),min(g_measure[6],h[h_dec[2]]))
+        elif np.all(h_dec == [2,1,0]) :
+            SI_output[i] = max(min(g_measure[2],h[h_dec[0]]),min(g_measure[5],h[h_dec[1]]),min(g_measure[6],h[h_dec[2]]))
+    return SI_output
+
+# Weighted Average
+def get_WA(output_shape,output_texture,output_color,WA_weight):
+    input_data = np.array([output_shape, output_texture, output_color])
+    WA_weight = np.array(WA_weight) / np.sum(WA_weight)
+    WA_output = np.zeros((len(output_shape)))
+    for i in range(len(output_shape)) :
+        WA_output[i] = np.sum(input_data[:,i] * WA_weight)
+    return WA_output
+
+# Load Data
+def data_loader(path) :
+    data_list = []
+    with open(path, 'r') as f:
+        content = f.read()
+    data_sections = content.strip().split('\n\n\n')
+    for section in data_sections:
+        lines = section.splitlines()
+        data_dict = {}
+        for i in range(len(lines)):
+            if lines[i].startswith("label:"):
+                label_data = ast.literal_eval(lines[i].split(":", 1)[1].strip())
+                data_dict["label"] = label_data 
+            elif lines[i].startswith("output_shape:"):
+                shape_data = ast.literal_eval(lines[i + 1].strip())
+                data_dict["output_shape"] = shape_data
+            elif lines[i].startswith("output_texture:"):
+                texture_data = ast.literal_eval(lines[i + 1].strip())
+                data_dict["output_texture"] = texture_data
+            elif lines[i].startswith("output_color:"):
+                color_data = ast.literal_eval(lines[i + 1].strip())
+                data_dict["output_color"] = color_data
+        data_list.append(data_dict)
+    return data_list
+
+# Apply K_Fold
+def K_Fold(data_list, num_fold, opFM, tipoFM):
+    output_shapes = np.array(data_list[0]['output_shape'])
+    output_textures = np.array(data_list[0]['output_texture'])
+    output_colors = np.array(data_list[0]['output_color'])
+    labels = np.array(data_list[0]['label'])
+    kf = KFold(n_splits=num_fold, shuffle=True, random_state=42)
+    sum_acc_WA = 0
+    sum_acc_Average = 0
+    sum_acc_GeneralChoquet = 0
+    list_acc_shape = []
+    list_acc_texture = []
+    list_acc_color = []
+    
+    for fold_idx, (train_index, test_index) in enumerate(kf.split(output_shapes)):
+        print(f"Processing Fold {fold_idx + 1}...")
+        train_shapes, test_shapes = output_shapes[train_index], output_shapes[test_index]
+        train_textures, test_textures = output_textures[train_index], output_textures[test_index]
+        train_colors, test_colors = output_colors[train_index], output_colors[test_index]
+        train_labels, test_labels = labels[train_index], labels[test_index]
+        acc_WA = 0
+        acc_Average = 0
+        acc_GeneralChoquet = 0
+        
+        acc_shape, acc_texture, acc_color = 0, 0, 0
+        for i in range(len(train_labels)):
+            output_label = train_labels[i]
+            if np.argsort(train_shapes[i])[::-1][0] == output_label:
+                acc_shape += 1
+            if np.argsort(train_textures[i])[::-1][0] == output_label:
+                acc_texture += 1
+            if np.argsort(train_colors[i])[::-1][0] == output_label:
+                acc_color += 1
+        
+        g1 = acc_shape / len(train_labels)
+        g2 = acc_texture / len(train_labels)
+        g3 = acc_color / len(train_labels)
+        list_acc_shape.append(g1)
+        list_acc_texture.append(g2)
+        list_acc_color.append(g3)
+        print('Weights:')
+        sum_g = g1 + g2 + g3
+        print(f'shape: {g1/sum_g}, texture: {g2/sum_g}, color: {g3/sum_g}')
+        
+        for i in range(len(test_labels)):
+            output_label = test_labels[i]
+            output_shape = test_shapes[i]
+            output_texture = test_textures[i]
+            output_color = test_colors[i]
+            
+            WA_weight = [g1, g2, g3]
+            Average_weight = [1/3, 1/3, 1/3]
+            
+            WA_output = get_WA(output_shape, output_texture, output_color, WA_weight)
+            Average_output = get_WA(output_shape, output_texture, output_color, Average_weight)
+            
+            # The function now works correctly as it's passed a single data point
+            general_choquet_output = generalized_choquet(opFM, tipoFM, output_shape, output_texture, output_color)
+            
+            if np.argsort(WA_output)[::-1][0] == output_label:
+                acc_WA += 1
+            if np.argsort(Average_output)[::-1][0] == output_label:
+                acc_Average += 1
+            if np.argsort(general_choquet_output)[::-1][0] == output_label:
+                acc_GeneralChoquet += 1
+        
+        sum_acc_WA += acc_WA
+        sum_acc_Average += acc_Average
+        sum_acc_GeneralChoquet += acc_GeneralChoquet
+        
+        acc_WA /= len(test_labels)
+        acc_Average /= len(test_labels)
+        acc_GeneralChoquet /= len(test_labels)
+        
+        print(f'Fold {fold_idx+1} General Choquet ACC: {acc_GeneralChoquet}')
+        print(f'Fold {fold_idx+1} Average ACC: {acc_Average}')
+        print(f'Fold {fold_idx+1} WA ACC: {acc_WA}')
+    
+    total_samples = len(data_list[0]['label'])
+    sum_acc_WA /= total_samples
+    sum_acc_Average /= total_samples
+    sum_acc_GeneralChoquet /= total_samples
+    
+    print('Average across all folds')
+    print('WA:', sum_acc_WA)
+    print('Average:', sum_acc_Average)
+    print('General Choquet ACC:', sum_acc_GeneralChoquet)
+    print('shape:', np.mean(list_acc_shape))
+    print('texture:', np.mean(list_acc_texture))
+    print('color:', np.mean(list_acc_color))
+
+if __name__ == "__main__":
+    # CHOOSE YOUR COMBINATION HERE
+    # Fuzzy Measure Type (tipoFM)
+    # 1: Cardinality, 2: Delta of Dirac, 3: Weighted Mean, 4: OWA, 5: CardGA
+    selected_tipoFM = 1
+    
+    # Integral Generalization Type (opFM)
+    # 1: Product t-norm, 2: CC-min, 3: CT-integral, 4: CF-AVG, 5: CF-nonAVG, 6: CF1F2, 7: dCF, 8: dCC, 9: dXC
+    selected_opFM = 2
+    
+    # Load data
+    data_list = data_loader('iLab_dataset.txt')
+    # data_list = data_loader('Combined_dataset.txt')
+    
+    # Apply K-fold
+    K_Fold(data_list, 10, selected_opFM, selected_tipoFM)
