@@ -3,6 +3,8 @@ import random
 from sklearn.model_selection import KFold
 import ast
 import sympy as sp
+import pandas as pd
+import openpyxl
 
 ##########  This algorithm is only a case study of a three-source fusion task  #############
 
@@ -69,23 +71,24 @@ def fuzzy_measure(tipoFM, indexes_Classes, sorted_valuesToAgg, exp, w):
 # ====================================================================
 # INTEGRAL GENERALIZATIONS (Top generalizations of the Choquet integral)
 # ====================================================================
-def integral_product_tnorm(x, y):
+def product_tnorm(x, y):
+    #Standard Choquet integral
     return x * y
 
-def integral_cc_min(h_i, h_i_1, y):
+def CC_integral(h_i, h_i_1, y):
     return min(h_i, y) - min(h_i_1, y)
 
-def integral_ct(x, y):
+def CT_integral(x, y):
     if (x == 0.0) and (y == 0.0):
         return 0.0
     return (x * y) / (x + y - (x * y))
 
-def integral_cf_avg(x, y):
+def CF_integral_AVG(x, y):
     if x < y:
         return x
     return min(x / 2, y)
 
-def integral_cf_nonavg(x, y):
+def CF_integral_NonAVG(x, y):
     if x == 0:
         return 0
     elif (x > 0) and (x <= y):
@@ -93,29 +96,23 @@ def integral_cf_nonavg(x, y):
     else:
         return min(x / 2, y)
 
-def integral_cf1f2(h_i, h_i_1, y):
+def CF1F2_integral(h_i, h_i_1, y):
     return np.sqrt(h_i * y) - (h_i_1 * (y ** 2))
 
-def integral_dcf_alterado(h_i, h_i_1, y):
-    if h_i_1 > h_i:
-        return 0.0
+def dCF_integral(h_i, h_i_1, y):
     x = np.sqrt(np.sqrt(h_i) - np.sqrt(h_i_1))
     return x * y
 
-def integral_dcc(h_i, h_i_1, y):
+def dCC_integral(h_i, h_i_1, y):
     term1 = np.min([h_i, y]) * np.max([h_i ** 2, y ** 2])
     term2 = np.min([h_i_1, y]) * np.max([h_i_1 ** 2, y ** 2])
-    if term2 > term1:
-         return 0.0
     return np.sqrt(np.sqrt(term1) - np.sqrt(term2))
 
-def integral_dxc(h_i, h_i_1, y):
-    if (h_i_1 * y) > (h_i * y):
-        return 0.0
+def dXC_integral(h_i, h_i_1, y):
     return np.sqrt(np.sqrt(h_i * y) - np.sqrt(h_i_1 * y))
 
 # ====================================================================
-# GENERALIZED CHOQUET INTEGRAL FUNCTION (NOW CORRECTLY HANDLES CLASSES)
+# GENERALIZED CHOQUET INTEGRAL FUNCTION
 # ====================================================================
 def generalized_choquet(opFM, tipoFM, output_shape, output_texture, output_color, exp=0.5):
     
@@ -135,7 +132,7 @@ def generalized_choquet(opFM, tipoFM, output_shape, output_texture, output_color
         valuesToAgg = [output_shape[class_idx], output_texture[class_idx], output_color[class_idx]]
         
         # Sort values and get indices
-        sorted_indices = np.argsort(valuesToAgg)[::-1]
+        sorted_indices = np.argsort(valuesToAgg)
         sorted_valuesToAgg = np.array(valuesToAgg)[sorted_indices]
         
         agr = sorted_valuesToAgg[0]
@@ -147,23 +144,23 @@ def generalized_choquet(opFM, tipoFM, output_shape, output_texture, output_color
             
             sumando = 0.0
             if opFM == 1:
-                sumando = integral_product_tnorm(x, y)
+                sumando = product_tnorm(x, y)
             elif opFM == 2:
-                sumando = integral_cc_min(sorted_valuesToAgg[i], sorted_valuesToAgg[i-1], y)
+                sumando = CC_integral(sorted_valuesToAgg[i], sorted_valuesToAgg[i-1], y)
             elif opFM == 3:
-                sumando = integral_ct(x, y)
+                sumando = CT_integral(x, y)
             elif opFM == 4:
-                sumando = integral_cf_avg(x, y)
+                sumando = CF_integral_AVG(x, y)
             elif opFM == 5:
-                sumando = integral_cf_nonavg(x, y)
+                sumando = CF_integral_NonAVG(x, y)
             elif opFM == 6:
-                sumando = integral_cf1f2(sorted_valuesToAgg[i], sorted_valuesToAgg[i-1], y)
+                sumando = CF1F2_integral(sorted_valuesToAgg[i], sorted_valuesToAgg[i-1], y)
             elif opFM == 7:
-                sumando = integral_dcf_alterado(sorted_valuesToAgg[i], sorted_valuesToAgg[i-1], y)
+                sumando = dCF_integral(sorted_valuesToAgg[i], sorted_valuesToAgg[i-1], y)
             elif opFM == 8:
-                sumando = integral_dcc(sorted_valuesToAgg[i], sorted_valuesToAgg[i-1], y)
+                sumando = dCC_integral(sorted_valuesToAgg[i], sorted_valuesToAgg[i-1], y)
             elif opFM == 9:
-                sumando = integral_dxc(sorted_valuesToAgg[i], sorted_valuesToAgg[i-1], y)
+                sumando = dXC_integral(sorted_valuesToAgg[i], sorted_valuesToAgg[i-1], y)
 
             sumando = min(1, sumando)
             agr += sumando
@@ -301,8 +298,12 @@ def K_Fold(data_list, num_fold, opFM, tipoFM):
     list_acc_shape = []
     list_acc_texture = []
     list_acc_color = []
+
+    # New lists to store results per fold
+    fold_results = []
     
     for fold_idx, (train_index, test_index) in enumerate(kf.split(output_shapes)):
+        print("---------")
         print(f"Processing Fold {fold_idx + 1}...")
         train_shapes, test_shapes = output_shapes[train_index], output_shapes[test_index]
         train_textures, test_textures = output_textures[train_index], output_textures[test_index]
@@ -360,37 +361,90 @@ def K_Fold(data_list, num_fold, opFM, tipoFM):
         acc_WA /= len(test_labels)
         acc_Average /= len(test_labels)
         acc_GeneralChoquet /= len(test_labels)
+
+        # Stores the result of the current aggregation for this fold
+        fold_results.append(acc_GeneralChoquet)
         
-        print(f'Fold {fold_idx+1} General Choquet ACC: {acc_GeneralChoquet}')
-        print(f'Fold {fold_idx+1} Average ACC: {acc_Average}')
         print(f'Fold {fold_idx+1} WA ACC: {acc_WA}')
-    
+        print(f'Fold {fold_idx+1} Average ACC: {acc_Average}')
+        print(f'Fold {fold_idx+1} Generalized Choquet ACC: {acc_GeneralChoquet}')
+        
     total_samples = len(data_list[0]['label'])
     sum_acc_WA /= total_samples
     sum_acc_Average /= total_samples
     sum_acc_GeneralChoquet /= total_samples
     
+    print("-------")
+    print("------RESUMING------ FM = ",selected_tipoFM," AGG = ",opFM)
+    print("-------")
     print('Average across all folds')
     print('WA:', sum_acc_WA)
     print('Average:', sum_acc_Average)
-    print('General Choquet ACC:', sum_acc_GeneralChoquet)
+    print('Generalized Choquet ACC: ', sum_acc_GeneralChoquet)
     print('shape:', np.mean(list_acc_shape))
     print('texture:', np.mean(list_acc_texture))
     print('color:', np.mean(list_acc_color))
+    print("-------")
+
+    return fold_results # Returns the list with the fold results
 
 if __name__ == "__main__":
+    # Dictionary to store all results
+    all_results = {}
+
+    # Mapping opFM to column names
+    column_names = {
+        1: 'Choquet',
+        2: 'CC-min',
+        3: 'CT-integral',
+        4: 'CF-AVG',
+        5: 'CF-nonAVG',
+        6: 'CF1F2',
+        7: 'dCF',
+        8: 'dCC',
+        9: 'dXC'
+    }
+
     # CHOOSE YOUR COMBINATION HERE
     # Fuzzy Measure Type (tipoFM)
     # 1: Cardinality, 2: Delta of Dirac, 3: Weighted Mean, 4: OWA, 5: CardGA
     selected_tipoFM = 5
+
+    for i in range(1, 10):
+        # Integral Generalization Type (opFM)
+        # 1: Product t-norm, 2: CC-min, 3: CT-integral, 4: CF-AVG, 5: CF-nonAVG, 6: CF1F2, 7: dCF, 8: dCC, 9: dXC
+        selected_opFM = i
+        
+        # Load data
+        #data_list = data_loader('iLab_dataset.txt')
+        data_list = data_loader('Combined_dataset.txt')
+        
+        # Apply K-fold
+        print("------EXECUTING---- FM = ",selected_tipoFM,"opFM = ",i)
+        
+        # Calls the K_Fold function and stores the returned results
+        results = K_Fold(data_list, 10, selected_opFM, selected_tipoFM)
+        
+        # Adds the results to the main dictionary
+        column_name = column_names.get(selected_opFM, f'opFM_{selected_opFM}')
+        all_results[column_name] = results
+
+    # Add the Fold column
+    all_results['Fold'] = list(range(1, 11))
     
-    # Integral Generalization Type (opFM)
-    # 1: Product t-norm, 2: CC-min, 3: CT-integral, 4: CF-AVG, 5: CF-nonAVG, 6: CF1F2, 7: dCF, 8: dCC, 9: dXC
-    selected_opFM = 8
+    # Create a DataFrame
+    df = pd.DataFrame(all_results)
     
-    # Load data
-    data_list = data_loader('iLab_dataset.txt')
-    # data_list = data_loader('Combined_dataset.txt')
-    
-    # Apply K-fold
-    K_Fold(data_list, 10, selected_opFM, selected_tipoFM)
+    # Organize columns in the desired order
+    ordered_columns = ['Fold', 'Choquet', 'CC-min', 'CT-integral', 'CF-AVG', 'CF-nonAVG', 'CF1F2', 'dCF', 'dCC', 'dXC']
+    df = df.reindex(columns=ordered_columns)
+
+    # Calculate the mean of each column and add a new row
+    mean_row = df.select_dtypes(include=np.number).mean().to_dict()
+    mean_row['Fold'] = 'Mean'
+    df_mean = pd.DataFrame([mean_row])
+    df = pd.concat([df, df_mean], ignore_index=True)
+
+    # Save the DataFrame to an Excel file
+    df.to_excel('result_per_exec.xlsx', index=False)
+    print("\nFile 'result_per_exec.xlsx' created successfully!")

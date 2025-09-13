@@ -315,8 +315,8 @@ def K_Fold(data_list, num_fold=10) :
 if __name__ == "__main__":
 
     # Load data
-    # data_list = data_loader('Combined_dataset.txt') 
-    data_list = data_loader('iLab_dataset.txt')
+    data_list = data_loader('Combined_dataset.txt') 
+    #data_list = data_loader('iLab_dataset.txt')
 
     # Apply K-fold
     K_Fold(data_list,10)
